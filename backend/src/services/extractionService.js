@@ -1,110 +1,91 @@
-// backend/src/services/extractionService.js
 const { YoutubeTranscript } = require('youtube-transcript');
-const pdfParse = require('pdf-parse');
+const pdfPackage = require('pdf-parse');
 const axios = require('axios');
+const cheerio = require('cheerio');
 
-/**
- * Extracts the transcript from a YouTube video URL.
- */
-async function extractYouTubeTranscript(url) {
+// 1. YouTube Extractor (With Debugging)
+async function extractYoutube(url) {
     if (!url) return '';
-    try {
-        const transcriptArray = await YoutubeTranscript.fetchTranscript(url);
-        // Combine all the individual caption snippets into one giant paragraph
-        return transcriptArray.map(item => item.text).join(' ');
-    } catch (error) {
-        console.error(`Failed to fetch YouTube transcript for ${url}:`, error.message);
-        throw new Error("Could not extract YouTube transcript. Ensure the video has closed captions enabled.");
-    }
-}
-
-/**
- * Extracts the README.md text from a standard GitHub repository URL.
- * Example input: https://github.com/facebook/react
- */
-async function extractGithubReadme(url) {
-    if (!url) return '';
-    try {
-        // Parse the owner and repo name from the URL
-        const urlObj = new URL(url);
-        const pathParts = urlObj.pathname.split('/').filter(Boolean);
-        
-        if (pathParts.length < 2) {
-            throw new Error("Invalid GitHub URL format.");
-        }
-        
-        const owner = pathParts[0];
-        const repo = pathParts[1];
-
-        // Hit the GitHub REST API for the README
-        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/readme`;
-        const response = await axios.get(apiUrl);
-        
-        // GitHub returns the file content encoded in Base64
-        const base64Content = response.data.content;
-        const decodedText = Buffer.from(base64Content, 'base64').toString('utf-8');
-        
-        return decodedText;
-    } catch (error) {
-        console.error(`Failed to fetch GitHub README for ${url}:`, error.message);
-        throw new Error("Could not extract GitHub README. Ensure the repository is public.");
-    }
-}
-
-/**
- * Extracts raw text from a PDF file buffer.
- */
-async function extractPdfText(pdfBuffer) {
-    if (!pdfBuffer) return '';
-    try {
-        const data = await pdfParse(pdfBuffer);
-        return data.text;
-    } catch (error) {
-        console.error("Failed to parse PDF:", error.message);
-        throw new Error("Could not extract text from the provided PDF.");
-    }
-}
-
-/**
- * THE MASTER EXTRACTION FUNCTION (Stage 2)
- * Takes all potential inputs from the UI and combines them into one unified context string.
- */
-async function extractDataFromSources({ youtubeUrl, githubUrl, pdfFileBuffer, rawText }) {
-    console.log("Starting Data Extraction Phase...");
+    console.log(`\n🔍 Attempting to fetch transcript for: ${url}`);
     
-    let combinedContext = "";
-
-    // Run extractions conditionally based on what the user provided
-    if (youtubeUrl) {
-        console.log("Extracting YouTube...");
-        const ytText = await extractYouTubeTranscript(youtubeUrl);
-        combinedContext += `\n--- YOUTUBE TRANSCRIPT ---\n${ytText}\n`;
+    try {
+        const transcript = await YoutubeTranscript.fetchTranscript(url);
+        if (!transcript || transcript.length === 0) {
+            console.log("❌ YouTube returned an empty transcript array.");
+            return "[No captions available for this video]\n";
+        }
+        const fullText = transcript.map(t => t.text).join(' ');
+        console.log(`✅ Successfully grabbed ${fullText.length} characters of transcript!`);
+        return `--- YOUTUBE TRANSCRIPT ---\n${fullText}\n\n`;
+    } catch (error) {
+        console.error("❌ YouTube Extraction Failed. Reason:", error.message);
+        return `[Failed to extract YouTube video: ${error.message}]\n\n`;
     }
-
-    if (githubUrl) {
-        console.log("Extracting GitHub...");
-        const ghText = await extractGithubReadme(githubUrl);
-        combinedContext += `\n--- GITHUB README ---\n${ghText}\n`;
-    }
-
-    if (pdfFileBuffer) {
-        console.log("Extracting PDF...");
-        const pdfText = await extractPdfText(pdfFileBuffer);
-        combinedContext += `\n--- PDF DOCUMENT ---\n${pdfText}\n`;
-    }
-
-    if (rawText) {
-        console.log("Adding Raw Text...");
-        combinedContext += `\n--- RAW TEXT ---\n${rawText}\n`;
-    }
-
-    if (!combinedContext.trim()) {
-        throw new Error("No valid data could be extracted from the provided sources.");
-    }
-
-    return combinedContext;
 }
 
-module.exports = {
-    extractDataFromSources
+// 2. Blog Extractor (Upgraded with Chrome User-Agent)
+async function extractBlog(url) {
+    if (!url) return '';
+    console.log(`\n🔍 Attempting to scrape blog: ${url}`);
+    try {
+        // We added headers to bypass the 403 anti-bot blocks!
+        const { data } = await axios.get(url, {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' 
+            }
+        });
+        const $ = cheerio.load(data);
+        $('script, style, nav, footer, aside, noscript').remove();
+        const articleText = $('p, h1, h2, h3, h4, li').map((i, el) => $(el).text()).get().join(' ');
+        console.log(`✅ Successfully scraped blog post!`);
+        return `--- BLOG POST ---\n${articleText.replace(/\s+/g, ' ').trim()}\n\n`;
+    } catch (error) {
+        console.error("❌ Blog Extraction Failed:", error.message);
+        return `[Failed to extract Blog post: ${error.message}]\n\n`;
+    }
+}
+
+// 3. PDF Extractor (Upgraded with fixed import name)
+async function extractPdfFile(buffer) {
+    if (!buffer) return '';
+    console.log(`\n🔍 Attempting to parse PDF file...`);
+    try {
+        // Now using the uniquely named pdfParse function
+        const data = await pdfPackage(buffer);
+        console.log(`✅ Successfully parsed PDF!`);
+        return `--- PDF NOTES ---\n${data.text}\n\n`;
+    } catch (error) {
+        console.error("❌ PDF Parsing Failed:", error.message);
+        return `[Failed to parse PDF: ${error.message}]\n\n`;
+    }
+}
+
+// 4. GitHub Extractor (Basic README fetcher for now)
+async function extractGithub(url) {
+    if (!url) return '';
+    console.log(`\n🔍 Attempting to fetch GitHub README for: ${url}`);
+    try {
+        // Convert github.com/user/repo to raw.githubusercontent.com/user/repo/main/README.md
+        const rawUrl = url.replace('github.com', 'raw.githubusercontent.com') + '/main/README.md';
+        const { data } = await axios.get(rawUrl);
+        console.log(`✅ Successfully fetched GitHub README!`);
+        return `--- GITHUB README ---\n${data}\n\n`;
+    } catch (error) {
+        console.error("❌ GitHub Extraction Failed:", error.message);
+        return `[Failed to fetch GitHub README: ${error.message}]\n\n`;
+    }
+}
+
+// THE MASTER ORCHESTRATOR FUNCTION
+exports.extractDataFromSources = async (sources) => {
+    const { youtubeUrl, githubUrl, blogUrl, pdfFileBuffer } = sources;
+    let combinedText = "";
+
+    // Notice how these names now perfectly match the functions above!
+    if (youtubeUrl) combinedText += await extractYoutube(youtubeUrl);
+    if (githubUrl) combinedText += await extractGithub(githubUrl);
+    if (blogUrl) combinedText += await extractBlog(blogUrl);
+    if (pdfFileBuffer) combinedText += await extractPdfFile(pdfFileBuffer);
+
+    return combinedText;
 };
