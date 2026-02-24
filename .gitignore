@@ -1,0 +1,22 @@
+# Secrets
+.env
+.env.*
+**/.env
+*.pem
+secrets.json
+
+# Mac OS
+.DS_Store
+**/.DS_Store
+
+# Backend/Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+venv/
+env/
+
+# Frontend/Node
+node_modules/
+**/node_modules/
+.next/
