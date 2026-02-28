@@ -6,17 +6,30 @@ exports.generateLearningPath = async (req, res) => {
         const { youtubeUrl, githubUrl, blogUrl } = req.body;
         const pdfFileBuffer = req.file ? req.file.buffer : null;
 
-        // Stage 2: Extract the text
-        const extractedText = await extractDataFromSources({ 
+        // Stage 2: Extract the data (Could be a String OR a Vision Object)
+        const extractedData = await extractDataFromSources({ 
             youtubeUrl, githubUrl, blogUrl, pdfFileBuffer 
         });
 
-        if (!extractedText.trim()) {
-            return res.status(400).json({ error: "Could not extract any text from the provided sources." });
+        // 🔍 THE FIX: robust validation for both types
+        let hasValidContent = false;
+
+        // Case A: It's a Vision Object (Handwritten PDF)
+        if (typeof extractedData === 'object' && extractedData.type === 'VISION_FILE') {
+            hasValidContent = true;
+            console.log("Orchestrator: Passing Vision Object to AI...");
+        } 
+        // Case B: It's a Text String (YouTube/Blog)
+        else if (typeof extractedData === 'string' && extractedData.trim().length > 0) {
+            hasValidContent = true;
         }
 
-        // Stage 3: Send it to the AI!
-        const generatedPath = await generatePathFromLLM(extractedText);
+        if (!hasValidContent) {
+            return res.status(400).json({ error: "Could not extract any content from the provided sources." });
+        }
+
+        // Stage 3: Send the raw data (Object or String) to the AI!
+        const generatedPath = await generatePathFromLLM(extractedData);
 
         // Stage 5: Send the beautiful JSON back to your frontend
         res.json({
@@ -25,7 +38,7 @@ exports.generateLearningPath = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Orchestrator Error:", error.message);
+        console.error("Orchestrator Critical Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 };
